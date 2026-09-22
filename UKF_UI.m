@@ -1,6 +1,5 @@
-function [mx, Px, fu] = UKF_UI(y, mx_0, Px_0, fu_0, f, t, Q, R, M, C, ke, ...
-                               alpha_BW, beta_BW, gamma_BW, n_BW, eta,    ...
-                               eta_u, Su, Sv, Sa, gamma, phi, beta)
+function [mx, Px, fu] = UKF_UI(y, mx_0, Px_0, fu_0, Q, R, gamma, phi, beta, ...
+                               theta)
 %{
 this function is the UKF-UI filter by Lei et al. It infers the state and
 uncertain force of the given system. It uses 4th-order Runge-Kutta for the
@@ -11,30 +10,36 @@ y:        measurements                      [m],  [m/s],   [m/s2]
 mx_0:     initial state mean                [m],  [m/s],   [m/s2],  [m]
 Px_0:     initial state covariance          [m2], [m2/s2], [m2/s4], [m2]
 fu_0:     initial uncertain force           [kN]
-f:        known force                       [kN]
-t:        analysed times                    [s]
 Q:        process noise covariance          [m2], [m2/s2], [m2/s4], [m2]
 R:        measurement noise covariance      [m2], [m2/s2], [m2/s4]
-M:        mass matrix                       [1e3 kg]
-C:        damping matrix                    [kN-s/m]
-k:        stiffnesses                       [kN/m]
-alpha_BW: post-yield stiffness ratio        [-]
-beta_BW:  parameter of the BW model         [-]
-gamma_BW: parameter of the BW model         [-]
-n_BW:     parameter of the BW model         [-]
-eta:      influence matrix known inputs     [-]
-eta_u:    influence matrix uncertain inputs [-]
-Su:       displacement selection matrix     [-]
-Sv:       velocity selection matrix         [-]
-Sa:       acceleration selection matrix     [-]
 gamma:    spread parameter UT               [-]
 phi:      spread parameter UT               [-]
 beta:     non-Gaussianity parameter UT      [-]
+theta: system parameters. They must organized as
+    ---                                       ---
+   | known forces                      [kN]     |
+   | influence vector known loads      [-]      |
+   | influence vector uncertain loads  [-]      |
+   | mass matrix                       [1e3 kg] |
+   | damping matrix                    [kN-s/m] |
+   | stiffnesses                       [kN/m]   |
+   | post-yield stiffness ratio        [-]      |
+   | parameter of the Bouc-Wen model   [-]      |
+   | parameter of the Bouc-Wen model   [-]      |
+   | parameter of the Bouc-Wen model   [-]      |
+   | high energy dissipation           [-]      |
+   | time step                         [s]      |
+   | tolerance Newton-Raphson          [-]      |
+   | maximum iterations Newton-Raphson [-]      |
+   | displacement selection matrix     [-]      |
+   | velocity selection matrix         [-]      |
+   | acceleration selection matrix     [-]      |
+   ---                                        ---
 
 OUTPUTS:
-mx: state mean       [m],  [m/s],   [m]
-Px: state covariance [m2], [m2/s2], [m2]
-fu: uncertain inputs [m/s2]
+mx: state mean       [m],  [m/s],   [m/s2],  [m]
+Px: state covariance [m2], [m2/s2], [m2/s4], [m2]
+fu: uncertain inputs [kN]
 
 BIBLIOGRAPHY: {1} A novel unscented Kalman filter for recursive state-input-
                   system identification of nonlinear systems - Lei Y et al
@@ -43,14 +48,30 @@ BIBLIOGRAPHY: {1} A novel unscented Kalman filter for recursive state-input-
               {3} Numerical Methods for Engineers (6th edition) - Chapra
                   SC, Canale RP
 %}
-%% PARAMETRIZATION:
-Nt     = numel(t);          % number of times
-N_DOFs = size(M, 1);        % number of DOFs
-N_Su   = size(Su, 1);       % number of measured displacements
-N_Sv   = size(Sv, 1);       % number of measured velocities
-N_Sa   = size(Sa, 1);       % number of measured accelerations
-Nfu    = size(eta_u, 2);    % number of uncertain inputs
-Ny     = size(y, 1);        % number of measurements
+%% PARAMETRISATION:
+% extract the system parameters
+f        = theta{1};          % known forces                     [kN]
+eta      = theta{2};          % influence vector known loads     [-]
+eta_u    = theta{3};          % influence vector uncertain loads [-]
+M        = theta{4};          % mass matrix                      [1e3 kg]
+C        = theta{5};          % damping matrix                   [kN-s/m]
+ke       = theta{6};          % stiffnesses                      [kN/m]
+alpha_BW = theta{7};          % post-yield stiffness ratio       [-]
+beta_BW  = theta{8};          % parameter of the Bouc-Wen model  [-]
+gamma_BW = theta{9};          % parameter of the Bouc-Wen model  [-]
+n_BW     = theta{10};         % parameter of the Bouc-Wen model  [-]
+dt       = theta{12};         % time step                        [s]
+Su       = theta{15};         % displacement selection matrix    [-]
+Sv       = theta{16};         % velocity selection matrix        [-]
+Sa       = theta{17};         % acceleration selection matrix    [-]
+
+Nt       = size(    y, 2);    % number of times
+N_DOFs   = size(    M, 1);    % number of DOFs
+N_Su     = size(   Su, 1);    % number of measured displacements
+N_Sv     = size(   Sv, 1);    % number of measured velocities
+N_Sa     = size(   Sa, 1);    % number of measured accelerations
+Nfu      = size(eta_u, 2);    % number of uncertain inputs
+Ny       = size(y, 1);        % number of measurements
 
 % remove the acceleration components from the state -- from {2} Page 3
 mx_0(2*N_DOFs + (1:N_DOFs))                        = [];   % initial state mean
@@ -65,13 +86,12 @@ N = size(mx_0, 1);    % number of state components
 lambda    = phi^2*(N + gamma) - N;                         % [-] -- {1} Page 122
 Wm        = NaN(2*N + 1, 1);
 Wc        = NaN(1, 2*N + 1);
-Wm(1)     = lambda/(N + lambda);                           % [-] -- {2} Eq.7
-Wc(1)     = (lambda/(N + lambda)) + (1 - phi^2 + beta);    % [-] -- {2} Eq.8
-Wm(2:end) = 1/(2*(N + lambda));                            % [-] -- {2} Eq.9
-Wc(2:end) = 1/(2*(N + lambda));                            % [-] -- {2} Eq.9
+Wm(1)     = lambda/(N + lambda);                           % [-] -- {2} Eq.6
+Wc(1)     = (lambda/(N + lambda)) + (1 - phi^2 + beta);    % [-] -- {2} Eq.7
+Wm(2:end) = 1/(2*(N + lambda));                            % [-] -- {2} Eq.8
+Wc(2:end) = 1/(2*(N + lambda));                            % [-] -- {2} Eq.8
 
 % define the parameters of the models
-dt      = t(2) - t(1);    % time step [s]
 theta_g = {M; C; ke; alpha_BW; beta_BW; gamma_BW; n_BW; dt; eta};
 theta_h = {M; C; ke; alpha_BW; eta; Su; Sv; Sa};
 
@@ -83,7 +103,7 @@ phi_u(N_DOFs + (1:N_DOFs), :)       = M\eta_u;            % [1/1e3kg]
 lambda_u                            = sparse(Ny, Nfu);    % measurements
 lambda_u(N_Su + N_Sv + (1:N_Sa), :) = Sa*(M\eta_u);       % influence [1/1e3kg]
 
-%% FILTERING:
+%% MAIN:
 mx = NaN(  N,    Nt);      mx(:,    1) = mx_0;
 fu = NaN(Nfu,    Nt);      fu(:,    1) = fu_0;
 Px = NaN(  N, N, Nt);      Px(:, :, 1) = Px_0;
@@ -167,6 +187,17 @@ for k = 1:(Nt - 1)
                       K_kp1*Py_kp1*K_kp1';          % error   [m2/s2],
     Px(:, :, k + 1) = (1/2)*(Px_aux + Px_aux');     % covaria [m2]
 end
+
+% allocate space for acceleration in the state estimates to match the outside
+% format -- Page 3
+mx_org = mx;
+Px_org = Px;
+idx    = [1:2*N_DOFs, 3*N_DOFs + (1:N_DOFs)];
+
+mx              = NaN(4*N_DOFs, Nt);              % mean
+mx(idx,      :) = mx_org;                         % [m],  [m/s],   [m/s2],  [m]
+Px              = NaN(4*N_DOFs, 4*N_DOFs, Nt);    % covariance
+Px(idx, idx, :) = Px_org;                         % [m2], [m2/s2], [m2/s4], [m2]
 end
 
 function [xdot] = g(x, f, theta)
@@ -181,6 +212,7 @@ theta: system parameters
 OUTPUTS:
 xdot: system dynamics [m/s], [m/s2], [m/s]
 %}
+%% PARAMETRISATION:
 % get the system parameters
 M      = theta{1};      % mass matrix                  [1e3 kg]
 C      = theta{2};      % damping matrix               [kN-s/m]
@@ -200,8 +232,9 @@ xi      = x((2*N_DOFs + 1):       end);    % BW displacements [m]
 
 vi_vim1 = diff([0; v]);                    % velocity drifts  [m/s]
 
+%% MAIN:
 % evaluate the restoring force
-F = alpha.*k.*diff([0; u]) + (1 - alpha).*k.*xi;    % spring's [kN] -- {2} Eq.54
+F = alpha.*k.*diff([0; u]) + (1 - alpha).*k.*xi;    % spring's [kN] -- {2} Eq.50
 F = F - [F(2:end); 0];                              % DOFs's   [kN]
 
 % compute the dynamics -- {1} Eqs.2 and 31
@@ -269,7 +302,7 @@ v       = x((  N_DOFs + 1):(2*N_DOFs));    % velocities       [m/s]
 xi      = x((2*N_DOFs + 1):       end);    % BW displacements [m]
 
 % evaluate the restoring force
-F = alpha.*k.*diff([0; u]) + (1 - alpha).*k.*xi;    % spring's [kN] -- {2} Eq.54
+F = alpha.*k.*diff([0; u]) + (1 - alpha).*k.*xi;    % spring's [kN] -- {2} Eq.50
 F = F - [F(2:end); 0];                              % DOFs'    [kN]
 
 % compute the measuremenets
