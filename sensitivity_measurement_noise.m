@@ -1,6 +1,6 @@
 %{
-This code implements the nonlinear Bayesian filter with uncertain forces.
-It compares the filter performance with different noise levels.
+This code implements the UKF-UL. It compares the filter performance with
+different noise levels.
 
 MADE BY:      junsebas97
 BIBLIOGRAPHY: A nonlinear Bayesian filter for structural systems with
@@ -11,24 +11,21 @@ rng(1234)
 
 %% INPUTS:
 % system:
-m         = 2*ones(6, 1);              % mass                   [1e3 kg]
-c         = 0.5*ones(6, 1);            % damping                [kN-s/m]
-k         = [10; 10; 10; 10; 5; 5];    % stiffness              [kN/m]
-alpha_BW  = 0.3*ones(6, 1);            % stiffness ratio        [-]
-beta_BW   = 80*ones(6, 1);             % BW model parameter     [-]
-gamma_BW  = 40*ones(6, 1);             % BW model parameter     [-]
-n_BW      = 2*ones(6, 1);              % BW model parameter     [-]
-x0        = zeros(24, 1);              % initial condition      [m],
-                                       %                        [m/s],
-                                       %                        [m/s2],
-                                       %                        [m]
-rho_infty = 0.8;                       % high energy disipation [-]
-tolerance = 1e-3;                      % iterations tolerance   [-]
-max_iter  = 20;                        % maximum iterations     [-]
+m         = 2*ones(6, 1);              % mass                 [1e3 kg]
+c         = 0.5*ones(6, 1);            % damping              [kN-s/m]
+k         = [10; 10; 10; 10; 5; 5];    % stiffness            [kN/m]
+alpha_BW  = 0.3*ones(6, 1);            % stiffness ratio      [-]
+beta_BW   = 80*ones(6, 1);             % BW model parameter   [-]
+gamma_BW  = 40*ones(6, 1);             % BW model parameter   [-]
+n_BW      = 2*ones(6, 1);              % BW model parameter   [-]
+x0        = zeros(24, 1);              % initial condition    [m], [m/s], [m/s2], [m]
+rho_infty = 0.8;                       % TIA disipation       [-]
+tolerance = 1e-3;                      % iterations tolerance [-]
+max_iter  = 20;                        % maximum iterations   [-]
 
 % force:
 t    = (0:0.05:60)';                           % times                      [s]
-S_fk = zeros(6, 1);                            % known's  influence matrix  [-]
+S_fk = zeros(6, 1);                            % known's influence matrix   [-]
 S_fu = sparse([4, 6], [1, 2], [1, 1], 6, 2);   % uncertn's influence matrix [-]
 f_k  = zeros(1, size(t, 1));                   % known forces               [kN]
 f_u  = [-0.1*(2*sin(0.4*t') + sin(0.25*t'));   % uncertain forces           [kN]
@@ -51,9 +48,9 @@ kappa        = 1;                 % spread factor UT           [-]
 alpha        = 1;                 % spread factor UT           [-]
 beta         = 0;                 % non-Gaussianity factor UT  [-]
 
-mfu_0 = (5e-1)*ones(2, 1);    % initial input mean  [kN]
-Pfu_0 = (2e-1)*eye(2);        % initial force covar [kN2]
-E     = (1e-1)*eye(2);        % radom walk covar    [kN2]
+mfu_0 = (5e-1)*ones(2, 1);    % initial load mean   [kN]
+Pfu_0 = (2e-1)*eye(2);        % initial load covar  [kN2]
+E     = (1e-1)*eye(2);        % random walk covar   [kN2]
 
 mx_0  = (1e-1)*randn(24, 1);  % initial state mean  [m],  [m/s],   [m/s2],  [m]
 Px_0  = (1e-2)*eye(24);       % initial state covar [m2], [m2/s2], [m2/s4], [m2]
@@ -66,22 +63,10 @@ R     = diag([1e-2, ...       % covariance          [m2],
               1e-1]);         %                     [m2/s4]
 
 %% PARAMETERS:
-Nt     = size(t, 1);            % number of time steps
-N_Su   = size(Su, 1);           % number displacement measurements
-N_Sv   = size(Sv, 1);           % number velocities measurements
-N_Sa   = size(Sa, 1);           % number acceleration measurements
-N_DOFs = size(m, 1);            % number of DOFs
-nx     = size(mx_0, 1);         % dimensionality of the state
-nfu    = size(mfu_0, 1);        % dimensionality of the uncertain force
-Ny     = N_Su + N_Sv + N_Sa;    % total number of measurements
-
-dt     = t(2) - t(1);           % time step [s]
-
-% get the measurement matrix
-H                                                = zeros(Ny, nx);    % -- Eq.12
-H(              (1:N_Su),            (1:N_DOFs)) = Su;               % [-]
-H(       N_Su + (1:N_Sv),   N_DOFs + (1:N_DOFs)) = Sv;               % [-]
-H(N_Su + N_Sv + (1:N_Sa), 2*N_DOFs + (1:N_DOFs)) = Sa;               % [-]
+dt     = t(2) - t(1);       % time step [s]
+N_DOFs = size(    m, 1);    % number of DOFs
+n_fu   = size(mfu_0, 1);    % dimensionality of uncertain loads
+nx     = size( mx_0, 1);    % dimensionality of the state
 
 % define the system parameters
 M       = sparse(diag(m));           % mass matrix    [1e3 kg]
@@ -93,37 +78,36 @@ for i = 2:N_DOFs
                                                              -c(i),  c(i)];
 end
 
-theta = {H; f_k; S_fk; S_fu; M; C; k; alphaBW_fltr; beta_BW;        % system
-         gamma_BW; nBW_fltr; rho_infty; dt; tolerance; max_iter};   % parameters
+theta = {f_k; S_fk; S_fu; M; C; k; alphaBW_fltr; beta_BW; gamma_BW; nBW_fltr;
+         rho_infty; dt; tolerance; max_iter; Su; Sv; Sa};
 
 %% MAIN:
 % define the force of the system
-f_data = S_fk*f_k + S_fu*f_u;     % [kN] -- Eq.13
+f_data = S_fk*f_k + S_fu*f_u;    % [kN] -- Eq.13
 
 % perform the filtering
 N_analy = numel(noise_ratio);
 y       = cell(N_analy, 1);
 mx      = cell(N_analy, 1);
-mfu      = cell(N_analy, 1);
+mfu     = cell(N_analy, 1);
 Px      = cell(N_analy, 1);
-Pfu      = cell(N_analy, 1);
-xMSE    = NaN( nx, N_analy);
-fMSE    = NaN(nfu, N_analy);
+Pfu     = cell(N_analy, 1);
+xRMSE   = NaN( nx, N_analy);
+fRMSE   = NaN(n_fu, N_analy);
 for i = 1:N_analy
     % in each analysis,
     % 1) create target data (measurements and states)
     [x, y{i}] = get_data(x0, f_data, M, C, k, alpha_BW, beta_BW, gamma_BW, ...
-                         n_BW, rho_infty, dt, tolerance, max_iter, H,      ...
-                         noise_ratio(i));
+                         n_BW, rho_infty, dt, tolerance, max_iter, Su, Sv, ...
+                         Sa, noise_ratio(i));
 
     % 2) apply the proposed filter
-    [mx{i}, Px{i}, mfu{i}, Pfu{i}] = this_filter(y{i}, mx_0, Px_0, mfu_0, ...
-                                                 Pfu_0, E, Q, R, kappa,   ...
-                                                 alpha, beta, theta);
+    [mx{i}, Px{i}, mfu{i}, Pfu{i}] = UKF_UL(y{i}, mx_0, Px_0, mfu_0, Pfu_0, ...
+                                            E, Q, R, kappa, alpha, beta, theta);
 
     % 3) evaluate the RMSE
-    xMSE(:, i) = rmse( mx{i},   x, 2);    % on states [m], [m/s], [m/s2], [m]
-    fMSE(:, i) = rmse(mfu{i}, f_u, 2);    % on forces [kN]
+    xRMSE(:, i) = rmse( mx{i},   x, 2);
+    fRMSE(:, i) = rmse(mfu{i}, f_u, 2);
 
     % 4) plot the filter's estimation
     plot_estimation(  x, y{i}, t,  mx{i},  Px{i}, {Su; Sv; Sa; sparse(0, 6)})
@@ -133,16 +117,16 @@ end
 %{
 NOTE:
 The units are as follows
-    x and mx ---> [m],  [m/s],   [m/s2],  [m]
-    Px       ---> [m2], [m2/s2], [m2/s4], [m2]
-    y        ---> [m],  [m/s],   [m/s2]
-    mfu      ---> [kN]
-    Pfu      ---> [kN2]
+    x, mx, and xRMSE ---> [m],  [m/s],   [m/s2],  [m]
+    Px               ---> [m2], [m2/s2], [m2/s4], [m2]
+    y                ---> [m],  [m/s],   [m/s2]
+    mfu and fRMSE    ---> [kN]
+    Pfu              ---> [kN2]
 %}
 
 %% REPORT:
+print_RMSE(xRMSE, ["5%", "10%", "25%", "50%"])
+print_RMSE(fRMSE, ["5%", "10%", "25%", "50%"])
+
 compare_estimation(  x, y{end}, t,  mx, {Su; Sv; Sa; sparse(0, 6)}, ["5%", "10%", "25%", "50%"])
 compare_estimation(f_u,     [], t, mfu, {            sparse(0, 2)}, ["5%", "10%", "25%", "50%"])
-
-print_RMSE(xMSE, ["5%", "10%", "25%", "50%"])
-print_RMSE(fMSE, ["5%", "10%", "25%", "50%"])

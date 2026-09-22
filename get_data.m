@@ -1,5 +1,6 @@
-function [x, y] = get_data(x0, f, M, C, k, alpha_BW, beta_BW, gamma_BW, n_BW, ...
-                           rho_infty, dt, tolerance, max_iter, H, noise_ratio)
+function [x, y] = get_data(x0, f, M, C, k, alpha_BW, beta_BW, gamma_BW,      ...
+                           n_BW, rho_infty, dt, tolerance, max_iter, Su, Sv, ...
+                           Sa, noise_ratio)
 %{
 this function creates the data. It returns the noisy measurements, and the
 true states. It uses the generalised-alpha method for the time integration
@@ -19,7 +20,9 @@ rho_infty:   high energy dissipation                   [-]
 dt:          time step                                 [s]
 tolerance:   tolerance Newton-Raphson                  [-]
 max_iter:    maximum iterations Newton-Raphson         [-]
-H:           measurement matrix                        [-]
+Su:          displacement selection matrix             [-]
+Sv:          velocity selection matrix                 [-]
+Sa:          acceleration selection matrix             [-]
 noise_ratio: noise-to-signal ratio of the measurements [-]
 
 OUTPUTS:
@@ -34,16 +37,26 @@ BIBLIOGRAPHY: {1} A nonlinear Bayesian filter for structural systems with
                   Method - Chung J, Hulbert G
 %}
 
-%% PARAMETRIZATION:
-N_DOFs = size(M, 1);    % number of DOFs
-Nt     = size(f, 2);    % number of times
-Ny     = size(H, 1);    % number of measurements
+%% PARAMETRISATION:
+N_DOFs = size( M, 1);           % number of DOFs
+N_Su   = size(Su, 1);           % number displacement measurements
+N_Sv   = size(Sv, 1);           % number velocities measurements
+N_Sa   = size(Sa, 1);           % number acceleration measurements
+Nt     = size( f, 2);           % number of times
+nx     = 4*N_DOFs;              % dimensionality of the state
+Ny     = N_Su + N_Sv + N_Sa;    % total number of measurements
 
 % calculate the parameters of the TIA
 alpha_f = rho_infty/(rho_infty + 1);            % [-] -- {2} Eq.25
 alpha_m = (2*rho_infty - 1)/(rho_infty + 1);    % [-] -- {2} Eq.25
 gamma   = 1/2 - alpha_m + alpha_f;              % [-] -- {2} Eq.17
 beta    = (1/4)*(1 - alpha_m + alpha_f)^2;      % [-] -- {2} Eq.20
+
+% get the measurement matrix
+H                                                = zeros(Ny, nx);    % {1} Eq.11
+H(              (1:N_Su),            (1:N_DOFs)) = Su;               % [-]
+H(       N_Su + (1:N_Sv),   N_DOFs + (1:N_DOFs)) = Sv;               % [-]
+H(N_Su + N_Sv + (1:N_Sa), 2*N_DOFs + (1:N_DOFs)) = Sa;               % [-]
 
 % extract the previous state -- {1} Page 3
 u0  = x0(             1:  N_DOFs);    % displacement    [m]
