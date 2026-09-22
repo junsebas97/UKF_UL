@@ -5,12 +5,12 @@ DOF, it plots all the given estimation with the the truth and the measurements.
 It creates an interactive plot showing the time series.
 
 INPUTS:
-x:     true state/force                          [m], [m/s], [m/s2], [m] or [kN]
-y:     measurements                              [m], [m/s], [m/s2]
-t:     analysed times                            [s]
-mx:    state/force mean of different estimations [m], [m/s], [m/s2], [m] or [kN]
-Smat:  selection matrixes of the measurements    [-]
-names: names or labels of the estimations        [-]
+x:     true state/loads                         [m], [m/s], [m/s2], [m] or [kN]
+y:     measurements                             [m], [m/s], [m/s2]
+t:     analysed times                           [s]
+mx:    state/load mean of different estimations [m], [m/s], [m/s2], [m] or [kN]
+Smat:  selection matrixes of the measurements   [-]
+names: names or labels of the estimations       [-]
 
 MADE BY: junsebas97
 %}
@@ -64,7 +64,7 @@ end
 function updatePlots(i, ax, x, y, t, mx, Smat, names)
 i = round(i);
 
-colors = ["red", "green", "magenta", "cyan"];
+colors = ["blue", "red", "green", "magenta", "cyan"];
 N_est  = size(names, 2);      % number of estimations
 Nx     = size(x, 1);          % number of state components
 N_DOFs = size(Smat{1}, 2);    % number of DOFs
@@ -88,7 +88,7 @@ for k = 1:Nx_DOF
              'DisplayName', names(j))
     end
 
-    plot(  ax{k}, t, x(x_idx, :), 'b-', 'DisplayName', 'True')
+    plot(  ax{k}, t, x(x_idx, :), 'k-', 'DisplayName', 'True')
     hold(  ax{k},   'off');
     xlabel(ax{k}, 't [s]');
     axis(  ax{k}, 'tight');
@@ -98,15 +98,15 @@ end
 end
 
 function stepSlider(sld, step, ax, x, y, t, mx, Smat, names)
-    %{
-    this function to moves the slider by step
-    %}
+%{
+this function to moves the slider by step
+%}
 
-    % compute the new slider value withint the limits
-    newValue = round(sld.Value + step);
-    newValue = max(min(newValue, sld.Limits(2)), sld.Limits(1));
+% compute the new slider value withint the limits
+newValue = round(sld.Value + step);
+newValue = max(min(newValue, sld.Limits(2)), sld.Limits(1));
 
-    % update the slider and the plot
-    sld.Value = newValue;
-    updatePlots(newValue, ax, x, y, t, mx, Smat, names);
+% update the slider and the plot
+sld.Value = newValue;
+updatePlots(newValue, ax, x, y, t, mx, Smat, names);
 end
