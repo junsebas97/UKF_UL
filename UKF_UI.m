@@ -6,15 +6,15 @@ uncertain force of the given system. It uses 4th-order Runge-Kutta for the
 time integration and Bouc-Wen model for the restoring force.
 
 INPUTS:
-y:        measurements                      [m],  [m/s],   [m/s2]
-mx_0:     initial state mean                [m],  [m/s],   [m/s2],  [m]
-Px_0:     initial state covariance          [m2], [m2/s2], [m2/s4], [m2]
-fu_0:     initial uncertain force           [kN]
-Q:        process noise covariance          [m2], [m2/s2], [m2/s4], [m2]
-R:        measurement noise covariance      [m2], [m2/s2], [m2/s4]
-gamma:    spread parameter UT               [-]
-phi:      spread parameter UT               [-]
-beta:     non-Gaussianity parameter UT      [-]
+y:     measurements                 [m],  [m/s],   [m/s2]
+mx_0:  initial state mean           [m],  [m/s],   [m/s2],  [m]
+Px_0:  initial state covariance     [m2], [m2/s2], [m2/s4], [m2]
+fu_0:  initial uncertain force      [kN]
+Q:     process noise covariance     [m2], [m2/s2], [m2/s4], [m2]
+R:     measurement noise covariance [m2], [m2/s2], [m2/s4]
+gamma: spread parameter UT          [-]
+phi:   spread parameter UT          [-]
+beta:  non-Gaussianity parameter UT [-]
 theta: system parameters. They must organized as
     ---                                       ---
    | known forces                      [kN]     |
